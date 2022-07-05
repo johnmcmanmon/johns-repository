@@ -116,3 +116,86 @@ And membership_type in ('Membership','Single PPO','3-pack','5-pack')
 And store_id in (1) -- Publix
 And delivered_at_central::date between '2020-01-01' and '2020-12-31'
 Group by 1;
+
+
+
+
+     date_trunc('Month', convert_timezone('US/Central', ord.delivered_at))::date as Month
+     --, P.DISPLAY_NAME AS Display_Name
+     --, s.name
+     --, p.UPC as UPC
+     --, p.product_id as ID
+     , c.name as Category
+     , c.id as category_id
+     --, case
+     --   when cc.cpg_name = 'Private Label' then 'Private Label'
+     --   else 'Other'
+     --   end 
+     --       as PL_OTHER
+     --, s.name as Retailer
+     --, s.store_type as Channel
+     --, count(distinct sl.id) as locations
+     --, p.brand_name as Brand
+     --, s.name as Retailer
+     --, c.parent_id as Tier_1
+     , round(SUM((o.saved_product_price) * (o.actual_qty)),2) AS GMV
+     , SUM(o.actual_qty) AS Qty
+     , count(distinct(o.order_id)) as Orders
+---------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------
+--SECTION TWO: WHERE YOU GET THE STUFF
+     /* JOINS FOR NG SCHEMA */
+FROM og_views.order_lines o                                                                     --order_lines o = og table with ORDER details FOR EACH ITEM within an order                            
+    JOIN og_views.orders ord                                                                    --orders ord = og table showing ORDER details FOR THE ORDER ITSELF
+        ON o.order_id = ord.id
+            AND ord.status = 'delivered' --FILTERING OUT UNDELIVERED/CANCELED ORDERS
+            AND ord.is_external_platform_order = false --FILTERING OUT PLATFORM
+            AND ord.partner_id is null --FILTERING OUT WHITE LABEL
+            AND o.actual_product_type = 'Product' --FILTERS TO PRODUCTS ONLY, NO P
+            
+    JOIN ng_views.shipt_product_service_products p                                              --shipt_product_service_products p = catalog products and general information                              
+        ON o.actual_product_id = p.product_id
+            AND p.deleted_at is null
+    
+    --JOIN og_views.metros m                                                                    --metros m = Shipt designated metropolitan areas; they have names and codes
+    --    ON ord.metro_id = m.id
+        
+    JOIN data_science.prod_codes pc                                                             --prod_codes pc = table where QA is done and CPG_ID is added to the product                 
+        ON p.product_id = pc.product_id
+        AND qa_complete = 'True'                  
+        
+    JOIN data_science.cpg_codes cc                                                              --cpg_codes cc = table where CPG information is attached                 
+        ON pc.cpg_id = cc.cpg_id
+        
+    JOIN og_views.store_locations sl                                                            --store_locations sl = table containing store LOCATION information - individual stores, e.g. Target #1874
+        ON sl.id = ord.store_location_id
+    --JOIN og_views.stores s                                                                    --stores s = retailer table, e.g. Target, Meijer, Publix, etc.
+    --    ON s.id = ord.store_id
+        
+    JOIN ng_views.shipt_category_service_product_categorizations scsp                           --shipt_category_service_product_categorizations scsp = table where category_ids are assigned            
+        ON p.product_id = scsp.product_id
+        
+    JOIN ng_views.shipt_category_service_categories c                                           --shipt_category_service_categories c = table where granular category information is added
+      ON c.id = scsp.category_id
+          AND c.category_type = 'Cryptex'
+          
+     /* END JOINS FOR NG SCHEMA */
+ 
+---------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------
+--SECTION 3: THE CONDITIONS/PARAMETERS FOR THE STUFF
+WHERE 
+      CAST(ord.delivered_at AS DATE) >= '2022-01-01'
+      --AND d2.cpg_name = 'Bob''s Red Mill'
+      --AND s.store_type = 'DrugConvenience'
+      --AND o.actual_product_type = 'Product'
+      AND sl.state in ('AL','FL')
+      AND category_id in (4958, 4961, 4912, 4913, 4255, 5895)
+      --AND c.name = 'Food'
+      --AND p.brand_name like any ('Enfa%','Apta%','Simil%')
+      
+---------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------
+--SECTION 4: HOW YOU WANT TO SEE YOUR STUFF
+GROUP BY 1,2,3 --always group by everything that is not a calculated value
+ORDER BY 1,4 desc--,3,4,5,7 desc 
